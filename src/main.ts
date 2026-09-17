@@ -153,7 +153,9 @@ function updateNails(result: HandLandmarkerResult) {
     nail.visible = backOfHand;
     if (!backOfHand) return;
     const tip = points[tips[i]], dip = points[dips[i]];
-    const target = new THREE.Vector3((0.5 - tip.x) * 1.9, (0.5 - tip.y) * 1.45, -tip.z * 1.2);
+    // The video is intentionally unmirrored. MediaPipe x=0 is the left
+    // edge of that same image, so do not invert x for the Three.js overlay.
+    const target = new THREE.Vector3((tip.x - 0.5) * 1.9, (0.5 - tip.y) * 1.45, -tip.z * 1.2);
     nail.position.lerp(target, 0.3);
     const direction = new THREE.Vector3(tip.x - dip.x, -(tip.y - dip.y), -(tip.z - dip.z)).normalize();
     const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
