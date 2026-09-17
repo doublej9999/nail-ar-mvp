@@ -91,13 +91,35 @@ async function startCamera() {
         stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640, max: 1280 }, height: { ideal: 480, max: 720 } }, audio: false });
       } else throw firstError;
     }
-    video.srcObject = stream; await video.play();
-    await new Promise<void>(resolve => video.readyState >= 2 ? resolve() : video.addEventListener('loadeddata', () => resolve(), { once: true }));
-    video.style.display = 'block'; startPanel.hidden = true; hud.hidden = false; controls.hidden = false;
+    // Show the live stream before loading the ML model. A slow/unsupported
+    // model must not make the camera appear to have failed.
+    video.style.display = 'block';
+    video.srcObject = stream;
+    startPanel.hidden = true; hud.hidden = false; controls.hidden = false;
+    statusEl.textContent = '正在开启摄像头…';
+    try {
+      await video.play();
+    } catch (error) {
+      // Safari can reject play() while it is switching the MediaStream. The
+      // stream is still usable; only abort errors are safe to ignore here.
+      if (!(error instanceof DOMException && error.name === 'AbortError')) throw error;
+    }
+    await new Promise<void>((resolve, reject) => {
+      if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) return resolve();
+      const timer = window.setTimeout(() => reject(new Error('摄像头视频流未能准备就绪')), 5000);
+      video.addEventListener('canplay', () => { window.clearTimeout(timer); resolve(); }, { once: true });
+    });
     statusEl.textContent = '正在加载手部识别…';
-    await initLandmarker(); cancelAnimationFrame(raf); raf = requestAnimationFrame(loop);
+    try {
+      await initLandmarker();
+      cancelAnimationFrame(raf); raf = requestAnimationFrame(loop);
+    } catch (error) {
+      statusEl.textContent = '相机已开启 · 手部识别加载失败';
+      errorEl.textContent = `相机已开启，但识别模型加载失败：${error instanceof Error ? error.message : '请检查网络后刷新'}`;
+      errorEl.hidden = false;
+    }
   } catch (error) {
-    stream?.getTracks().forEach(t => t.stop()); stream = null;
+    stream?.getTracks().forEach(t => t.stop()); stream = null; video.srcObject = null; video.style.display = 'none';
     errorEl.textContent = cameraErrorMessage(error);
     errorEl.hidden = false;
   }
