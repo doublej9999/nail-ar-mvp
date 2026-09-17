@@ -19,13 +19,20 @@ let lastVideoTime = -1;
 let frames = 0;
 let fpsStamp = performance.now();
 let facingMode: 'environment' | 'user' = 'environment';
+let selectedDesign = 'blush';
+const designPicker = document.querySelector<HTMLElement>('#design-picker')!;
+const designThemes: Record<string, { colors: number[]; accent: number; stripe: boolean }> = {
+  blush: { colors: [0xc98286, 0xe7b6a5, 0xd89aa7, 0xb96f83, 0xe6c2b8], accent: 0xffd69a, stripe: true },
+  french: { colors: [0xf7e9df, 0xf7e9df, 0xf7e9df, 0xf7e9df, 0xf7e9df], accent: 0xffffff, stripe: false },
+  berry: { colors: [0x9d285c, 0xc83c72, 0x8d245d, 0xe06c98, 0x7b194e], accent: 0xffbdd6, stripe: true },
+  midnight: { colors: [0x25255f, 0x34347d, 0x20204e, 0x41469a, 0x292964], accent: 0xffe7a4, stripe: true },
+};
+
 let smoothedHandScale = 1;
 let lastHandScale = 1;
 const palmReferenceWidth = 0.22;
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
+function clamp(value: number, min: number, max: number) { return Math.min(max, Math.max(min, value)); }
 
 const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -56,6 +63,24 @@ function createDesignerNail(index: number) {
   group.visible = false; nailGroup.add(group); return group;
 }
 const nails = Array.from({ length: 5 }, (_, i) => createDesignerNail(i));
+
+function applyDesign(name: string) {
+  const theme = designThemes[name] ?? designThemes.blush;
+  selectedDesign = name;
+  nails.forEach((group, i) => {
+    const shell = group.children[0] as THREE.Mesh;
+    (shell.material as THREE.MeshPhysicalMaterial).color.setHex(theme.colors[i]);
+    const accent = group.children[1] as THREE.Mesh;
+    (accent.material as THREE.MeshBasicMaterial).color.setHex(theme.accent);
+    accent.visible = theme.stripe;
+  });
+  document.querySelectorAll('.design').forEach(button => button.classList.toggle('active', (button as HTMLElement).dataset.design === name));
+}
+
+designPicker.querySelectorAll<HTMLButtonElement>('.design').forEach(button => {
+  button.addEventListener('click', () => applyDesign(button.dataset.design ?? 'blush'));
+});
+applyDesign(selectedDesign);
 
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
@@ -112,7 +137,7 @@ async function startCamera() {
     video.classList.add('camera-live');
     video.style.display = 'block';
     video.srcObject = stream;
-    startPanel.hidden = true; hud.hidden = false; controls.hidden = false;
+    startPanel.hidden = true; hud.hidden = false; controls.hidden = false; designPicker.hidden = false;
     statusEl.textContent = '正在开启摄像头…';
     try {
       await video.play();
@@ -161,24 +186,24 @@ function updateNails(result: HandLandmarkerResult) {
   // The sign is mirrored to match the front-facing display transform.
   const backOfHand = handDirection(points) < 0;
   const tips = [4, 8, 12, 16, 20], dips = [3, 7, 11, 15, 19];
-  const palmWidth = Math.hypot(points[5].x - points[17].x, points[5].y - points[17].y);
-  const detectedScale = clamp(palmWidth / palmReferenceWidth, 0.55, 2.2);
-  // Estimate scale from palm width, not z depth: it is stable across cameras
-  // and makes every nail grow/shrink with the hand in the video.
-  smoothedHandScale += (detectedScale - smoothedHandScale) * 0.18;
-  lastHandScale = smoothedHandScale;
-  nailGroup.scale.setScalar(smoothedHandScale);
+  // Do not scale the parent group: scaling it also scales the world-space
+  // positions and causes visible drift during approach/retreat. Size each
+  // nail from its own DIP→tip segment instead.
   nails.forEach((nail, i) => {
     nail.visible = backOfHand;
     if (!backOfHand) return;
     const tip = points[tips[i]], dip = points[dips[i]];
-    // The video is intentionally unmirrored. MediaPipe x=0 is the left
-    // edge of that same image, so do not invert x for the Three.js overlay.
-    const target = new THREE.Vector3((tip.x - 0.5) * 1.9, (0.5 - tip.y) * 1.45, -tip.z * 1.2);
-    nail.position.lerp(target, 0.3);
+    const fingerLength = Math.hypot(tip.x - dip.x, tip.y - dip.y, tip.z - dip.z);
+    const nailScale = clamp(fingerLength / 0.19, 0.62, 1.7);
+    nail.scale.lerp(new THREE.Vector3(nailScale, nailScale, nailScale), 0.22);
     const direction = new THREE.Vector3(tip.x - dip.x, -(tip.y - dip.y), -(tip.z - dip.z)).normalize();
+    // Anchor the cuticle end slightly behind the fingertip so the shell
+    // covers the natural nail rather than floating beyond the finger.
+    const mappedTip = new THREE.Vector3((tip.x - 0.5) * 1.9, (0.5 - tip.y) * 1.45, -tip.z * 1.2);
+    const target = mappedTip.clone().add(direction.clone().multiplyScalar(-0.055 * nailScale));
+    nail.position.lerp(target, 0.24);
     const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
-    nail.quaternion.slerp(q, 0.3);
+    nail.quaternion.slerp(q, 0.22);
   });
   statusEl.textContent = backOfHand ? '已识别 · 手背模式' : '检测到手心 · 请翻转手背';
 }
@@ -195,5 +220,5 @@ function loop() {
 
 document.querySelector('#start-button')!.addEventListener('click', startCamera);
 document.querySelector('#switch-camera')!.addEventListener('click', () => { facingMode = facingMode === 'environment' ? 'user' : 'environment'; startCamera(); });
-document.querySelector('#stop-button')!.addEventListener('click', () => { cancelAnimationFrame(raf); stream?.getTracks().forEach(t => t.stop()); stream = null; video.srcObject = null; video.classList.remove('camera-live'); video.style.display = 'none'; video.hidden = true; nails.forEach(n => n.visible = false); hud.hidden = true; controls.hidden = true; startPanel.hidden = false; });
+document.querySelector('#stop-button')!.addEventListener('click', () => { cancelAnimationFrame(raf); stream?.getTracks().forEach(t => t.stop()); stream = null; video.srcObject = null; video.classList.remove('camera-live'); video.style.display = 'none'; video.hidden = true; nails.forEach(n => n.visible = false); hud.hidden = true; controls.hidden = true; designPicker.hidden = true; startPanel.hidden = false; });
 (window as Window & { __appReady?: boolean }).__appReady = true;
