@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#090b12" />
+    <title>实时穿戴甲 AR 试戴</title>
+  </head>
+  <body>
+    <main id="app">
+      <video id="camera" playsinline webkit-playsinline muted autoplay></video>
+      <canvas id="ar-canvas"></canvas>
+      <section class="hero" id="start-panel">
+        <div class="brand-mark">NA</div>
+        <p class="eyebrow">NAIL AR · MVP</p>
+        <h1>实时穿戴甲<br /><em>AR 试戴</em></h1>
+        <p class="hint">将手背对准镜头，看看哪一款最适合你。</p>
+        <button id="start-button" class="primary">点击开启相机体验</button>
+        <small>相机画面仅在你的设备上处理</small>
+      </section>
+      <section class="hud" id="hud" hidden>
+        <div class="hud-status"><span class="dot"></span><span id="status">正在初始化…</span></div>
+        <div class="hud-meta"><span id="fps">0 FPS</span><span>·</span><span>手背模式</span></div>
+      </section>
+      <div class="controls" id="controls" hidden>
+        <button id="switch-camera" class="icon-button" aria-label="切换摄像头">↻</button>
+        <button id="stop-button" class="ghost-button">结束体验</button>
+      </div>
+      <div class="error" id="error" hidden></div>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
