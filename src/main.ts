@@ -21,13 +21,29 @@ let fpsStamp = performance.now();
 let facingMode: 'environment' | 'user' = 'environment';
 let selectedDesign = 'blush';
 const designPicker = document.querySelector<HTMLElement>('#design-picker')!;
-const designThemes: Record<string, { colors: number[]; accent: number; stripe: boolean }> = {
-  blush: { colors: [0xc98286, 0xe7b6a5, 0xd89aa7, 0xb96f83, 0xe6c2b8], accent: 0xffd69a, stripe: true },
-  french: { colors: [0xf7e9df, 0xf7e9df, 0xf7e9df, 0xf7e9df, 0xf7e9df], accent: 0xffffff, stripe: false },
-  berry: { colors: [0x9d285c, 0xc83c72, 0x8d245d, 0xe06c98, 0x7b194e], accent: 0xffbdd6, stripe: true },
-  midnight: { colors: [0x25255f, 0x34347d, 0x20204e, 0x41469a, 0x292964], accent: 0xffe7a4, stripe: true },
-};
+const photoMaterials: THREE.MeshPhysicalMaterial[] = [];
+const photoTextures: (THREE.Texture | null)[] = Array(5).fill(null);
+const photoCrops = [
+  [96, 136, 226, 359], [239, 137, 356, 327], [350, 130, 465, 319],
+  [463, 114, 575, 301], [566, 117, 675, 288],
+];
+new THREE.TextureLoader().load('/nail-reference.jpg', image => {
+  photoCrops.forEach(([x1, y1, x2, y2], i) => {
+    const crop = document.createElement('canvas'); crop.width = x2 - x1; crop.height = y2 - y1;
+    crop.getContext('2d')!.drawImage(image.image, x1, y1, crop.width, crop.height, 0, 0, crop.width, crop.height);
+    const texture = new THREE.CanvasTexture(crop); texture.colorSpace = THREE.SRGBColorSpace;
+    photoTextures[i] = texture;
+    if (photoMaterials[i]) { photoMaterials[i].map = texture; photoMaterials[i].needsUpdate = true; }
+  });
+});
 
+const designThemes: Record<string, { colors: number[]; accent: number; stripe: boolean; photo: boolean }> = {
+  // Crops correspond to the five decorated nails in the supplied reference.
+  blush: { colors: [0xc98286, 0xe7b6a5, 0xd89aa7, 0xb96f83, 0xe6c2b8], accent: 0xffd69a, stripe: false, photo: true },
+  french: { colors: [0xf7e9df, 0xf7e9df, 0xf7e9df, 0xf7e9df, 0xf7e9df], accent: 0xffffff, stripe: false, photo: false },
+  berry: { colors: [0x9d285c, 0xc83c72, 0x8d245d, 0xe06c98, 0x7b194e], accent: 0xffbdd6, stripe: true, photo: false },
+  midnight: { colors: [0x25255f, 0x34347d, 0x20204e, 0x41469a, 0x292964], accent: 0xffe7a4, stripe: true, photo: false },
+};
 let smoothedHandScale = 1;
 let lastHandScale = 1;
 const palmReferenceWidth = 0.22;
@@ -55,6 +71,9 @@ function createDesignerNail(index: number) {
   geo.center();
   const palette = [0xc98286, 0xe7b6a5, 0xd89aa7, 0xb96f83, 0xe6c2b8];
   const mat = new THREE.MeshPhysicalMaterial({ color: palette[index], roughness: 0.14, metalness: 0.08, clearcoat: 1, clearcoatRoughness: 0.05, sheen: 0.5, sheenColor: 0xffd8dd });
+  mat.map = photoTextures[index];
+  if (mat.map) mat.needsUpdate = true;
+  photoMaterials[index] = mat;
   const nail = new THREE.Mesh(geo, mat);
   nail.rotation.x = Math.PI / 2; group.add(nail);
   // A tiny gold shimmer stripe gives the set a finished salon look.
@@ -69,7 +88,10 @@ function applyDesign(name: string) {
   selectedDesign = name;
   nails.forEach((group, i) => {
     const shell = group.children[0] as THREE.Mesh;
-    (shell.material as THREE.MeshPhysicalMaterial).color.setHex(theme.colors[i]);
+    const material = shell.material as THREE.MeshPhysicalMaterial;
+    material.color.setHex(theme.colors[i]);
+    material.map = theme.photo ? photoTextures[i] : null;
+    material.needsUpdate = true;
     const accent = group.children[1] as THREE.Mesh;
     (accent.material as THREE.MeshBasicMaterial).color.setHex(theme.accent);
     accent.visible = theme.stripe;
@@ -194,13 +216,19 @@ function updateNails(result: HandLandmarkerResult) {
     if (!backOfHand) return;
     const tip = points[tips[i]], dip = points[dips[i]];
     const fingerLength = Math.hypot(tip.x - dip.x, tip.y - dip.y, tip.z - dip.z);
-    const nailScale = clamp(fingerLength / 0.19, 0.62, 1.7);
-    nail.scale.lerp(new THREE.Vector3(nailScale, nailScale, nailScale), 0.22);
+    // The distal segment is a more reliable scale reference than palm width:
+    // it makes each nail fit its own finger and avoids parent-group drift.
+    const nailScale = clamp(fingerLength / 0.16, 0.68, 1.65);
+    nail.scale.lerp(new THREE.Vector3(nailScale, nailScale, nailScale), 0.20);
     const direction = new THREE.Vector3(tip.x - dip.x, -(tip.y - dip.y), -(tip.z - dip.z)).normalize();
-    // Anchor the cuticle end slightly behind the fingertip so the shell
-    // covers the natural nail rather than floating beyond the finger.
-    const mappedTip = new THREE.Vector3((tip.x - 0.5) * 1.9, (0.5 - tip.y) * 1.45, -tip.z * 1.2);
-    const target = mappedTip.clone().add(direction.clone().multiplyScalar(-0.055 * nailScale));
+    const nailCenter = {
+      x: dip.x + (tip.x - dip.x) * 0.58,
+      y: dip.y + (tip.y - dip.y) * 0.58,
+      z: dip.z + (tip.z - dip.z) * 0.58,
+    };
+    // Center on the actual nail bed (between DIP and fingertip), rather than
+    // offsetting from the tip. This keeps the cuticle covered while zooming.
+    const target = new THREE.Vector3((nailCenter.x - 0.5) * 1.9, (0.5 - nailCenter.y) * 1.45, -nailCenter.z * 1.2);
     nail.position.lerp(target, 0.24);
     const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
     nail.quaternion.slerp(q, 0.22);
