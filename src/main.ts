@@ -3,6 +3,7 @@ import { FilesetResolver, HandLandmarker, type HandLandmarkerResult } from '@med
 import './style.css';
 
 const video = document.querySelector<HTMLVideoElement>('#camera')!;
+video.hidden = true;
 const canvas = document.querySelector<HTMLCanvasElement>('#ar-canvas')!;
 const startPanel = document.querySelector<HTMLElement>('#start-panel')!;
 const hud = document.querySelector<HTMLElement>('#hud')!;
@@ -93,6 +94,8 @@ async function startCamera() {
     }
     // Show the live stream before loading the ML model. A slow/unsupported
     // model must not make the camera appear to have failed.
+    video.hidden = false;
+    video.classList.add('camera-live');
     video.style.display = 'block';
     video.srcObject = stream;
     startPanel.hidden = true; hud.hidden = false; controls.hidden = false;
@@ -119,7 +122,7 @@ async function startCamera() {
       errorEl.hidden = false;
     }
   } catch (error) {
-    stream?.getTracks().forEach(t => t.stop()); stream = null; video.srcObject = null; video.style.display = 'none';
+    stream?.getTracks().forEach(t => t.stop()); stream = null; video.srcObject = null; video.classList.remove('camera-live'); video.style.display = 'none'; video.hidden = true;
     errorEl.textContent = cameraErrorMessage(error);
     errorEl.hidden = false;
   }
@@ -164,5 +167,5 @@ function loop() {
 
 document.querySelector('#start-button')!.addEventListener('click', startCamera);
 document.querySelector('#switch-camera')!.addEventListener('click', () => { facingMode = facingMode === 'environment' ? 'user' : 'environment'; startCamera(); });
-document.querySelector('#stop-button')!.addEventListener('click', () => { cancelAnimationFrame(raf); stream?.getTracks().forEach(t => t.stop()); stream = null; video.srcObject = null; video.style.display = 'none'; nails.forEach(n => n.visible = false); hud.hidden = true; controls.hidden = true; startPanel.hidden = false; });
+document.querySelector('#stop-button')!.addEventListener('click', () => { cancelAnimationFrame(raf); stream?.getTracks().forEach(t => t.stop()); stream = null; video.srcObject = null; video.classList.remove('camera-live'); video.style.display = 'none'; video.hidden = true; nails.forEach(n => n.visible = false); hud.hidden = true; controls.hidden = true; startPanel.hidden = false; });
 (window as Window & { __appReady?: boolean }).__appReady = true;
