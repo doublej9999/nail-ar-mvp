@@ -49,7 +49,17 @@ function resize() {
 window.addEventListener('resize', resize); resize();
 
 const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
-const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm';
+// Pin the package assets to the same-origin Vite public path when deployed.
+const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm';
+
+function cameraErrorMessage(error: unknown) {
+  const name = error instanceof DOMException ? error.name : '';
+  if (name === 'NotAllowedError' || name === 'SecurityError') return '相机权限被拒绝，请在浏览器设置中允许本网站使用相机。';
+  if (name === 'NotFoundError') return '没有可用摄像头。请用手机 Safari 或 Chrome 打开，不要使用 Telegram 内置浏览器。';
+  if (name === 'NotReadableError') return '摄像头被其他应用占用，请关闭微信/相机等应用后重试。';
+  if (name === 'OverconstrainedError') return '当前摄像头不支持该模式，正在使用通用模式失败。';
+  return error instanceof Error ? `启动失败：${error.message}` : '启动失败，请刷新页面后重试。';
+}
 
 async function initLandmarker() {
   const vision = await FilesetResolver.forVisionTasks(WASM_URL);
@@ -66,14 +76,7 @@ async function initLandmarker() {
   }
 }
 
-function messageForError(error: unknown) {
-  const name = error instanceof DOMException ? error.name : '';
-  if (name === 'NotAllowedError' || name === 'SecurityError') return '相机权限被拒绝。请在浏览器网站设置中允许相机，然后重新打开页面。';
-  if (name === 'NotFoundError') return '没有检测到摄像头。请确认手机相机未被其他应用占用。';
-  if (name === 'NotReadableError') return '摄像头当前被其他应用占用，请关闭后重试。';
-  if (name === 'OverconstrainedError') return '当前摄像头不支持后置模式，请切换摄像头后重试。';
-  return error instanceof Error ? `启动失败：${error.message}` : '启动失败，请刷新页面后重试。';
-}
+
 
 async function startCamera() {
   errorEl.hidden = true;
@@ -95,7 +98,7 @@ async function startCamera() {
     await initLandmarker(); cancelAnimationFrame(raf); raf = requestAnimationFrame(loop);
   } catch (error) {
     stream?.getTracks().forEach(t => t.stop()); stream = null;
-    errorEl.textContent = messageForError(error);
+    errorEl.textContent = cameraErrorMessage(error);
     errorEl.hidden = false;
   }
 }
