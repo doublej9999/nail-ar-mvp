@@ -48,25 +48,54 @@ function resize() {
 }
 window.addEventListener('resize', resize); resize();
 
+const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm';
+
 async function initLandmarker() {
-  const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm');
-  landmarker = await HandLandmarker.createFromOptions(vision, {
-    baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task', delegate: 'GPU' },
-    runningMode: 'VIDEO', numHands: 1, minHandDetectionConfidence: 0.55, minHandPresenceConfidence: 0.55, minTrackingConfidence: 0.55,
-  });
+  const vision = await FilesetResolver.forVisionTasks(WASM_URL);
+  const options = {
+    baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' as const },
+    runningMode: 'VIDEO' as const, numHands: 1,
+    minHandDetectionConfidence: 0.55, minHandPresenceConfidence: 0.55, minTrackingConfidence: 0.55,
+  };
+  try {
+    landmarker = await HandLandmarker.createFromOptions(vision, options);
+  } catch {
+    // Some iOS WebViews and older Android GPUs cannot initialize WebGL.
+    landmarker = await HandLandmarker.createFromOptions(vision, { ...options, baseOptions: { modelAssetPath: MODEL_URL, delegate: 'CPU' as const } });
+  }
+}
+
+function messageForError(error: unknown) {
+  const name = error instanceof DOMException ? error.name : '';
+  if (name === 'NotAllowedError' || name === 'SecurityError') return '相机权限被拒绝。请在浏览器网站设置中允许相机，然后重新打开页面。';
+  if (name === 'NotFoundError') return '没有检测到摄像头。请确认手机相机未被其他应用占用。';
+  if (name === 'NotReadableError') return '摄像头当前被其他应用占用，请关闭后重试。';
+  if (name === 'OverconstrainedError') return '当前摄像头不支持后置模式，请切换摄像头后重试。';
+  return error instanceof Error ? `启动失败：${error.message}` : '启动失败，请刷新页面后重试。';
 }
 
 async function startCamera() {
   errorEl.hidden = true;
   stream?.getTracks().forEach(t => t.stop());
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode, width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+    const preferred = { video: { facingMode: { exact: facingMode }, width: { ideal: 640, max: 1280 }, height: { ideal: 480, max: 720 } }, audio: false };
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(preferred);
+    } catch (firstError) {
+      // A few browsers reject facingMode constraints even when a camera exists.
+      if (firstError instanceof DOMException && (firstError.name === 'OverconstrainedError' || firstError.name === 'NotFoundError')) {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640, max: 1280 }, height: { ideal: 480, max: 720 } }, audio: false });
+      } else throw firstError;
+    }
     video.srcObject = stream; await video.play();
-    startPanel.hidden = true; hud.hidden = false; controls.hidden = false;
-    statusEl.textContent = '正在寻找手部…';
+    await new Promise<void>(resolve => video.readyState >= 2 ? resolve() : video.addEventListener('loadeddata', () => resolve(), { once: true }));
+    video.style.display = 'block'; startPanel.hidden = true; hud.hidden = false; controls.hidden = false;
+    statusEl.textContent = '正在加载手部识别…';
     await initLandmarker(); cancelAnimationFrame(raf); raf = requestAnimationFrame(loop);
   } catch (error) {
-    errorEl.textContent = error instanceof DOMException && error.name === 'NotAllowedError' ? '请允许相机权限后重试。' : '无法开启相机，请确认设备支持并使用 HTTPS。';
+    stream?.getTracks().forEach(t => t.stop()); stream = null;
+    errorEl.textContent = messageForError(error);
     errorEl.hidden = false;
   }
 }
@@ -110,5 +139,5 @@ function loop() {
 
 document.querySelector('#start-button')!.addEventListener('click', startCamera);
 document.querySelector('#switch-camera')!.addEventListener('click', () => { facingMode = facingMode === 'environment' ? 'user' : 'environment'; startCamera(); });
-document.querySelector('#stop-button')!.addEventListener('click', () => { cancelAnimationFrame(raf); stream?.getTracks().forEach(t => t.stop()); stream = null; video.srcObject = null; nails.forEach(n => n.visible = false); hud.hidden = true; controls.hidden = true; startPanel.hidden = false; });
+document.querySelector('#stop-button')!.addEventListener('click', () => { cancelAnimationFrame(raf); stream?.getTracks().forEach(t => t.stop()); stream = null; video.srcObject = null; video.style.display = 'none'; nails.forEach(n => n.visible = false); hud.hidden = true; controls.hidden = true; startPanel.hidden = false; });
 (window as Window & { __appReady?: boolean }).__appReady = true;
