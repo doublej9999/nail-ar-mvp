@@ -19,6 +19,13 @@ let lastVideoTime = -1;
 let frames = 0;
 let fpsStamp = performance.now();
 let facingMode: 'environment' | 'user' = 'environment';
+let smoothedHandScale = 1;
+let lastHandScale = 1;
+const palmReferenceWidth = 0.22;
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
 
 const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -145,10 +152,22 @@ function handDirection(points: { x: number; y: number; z: number }[]) {
 
 function updateNails(result: HandLandmarkerResult) {
   const points = result.landmarks[0];
-  if (!points) { nails.forEach(n => n.visible = false); statusEl.textContent = '未识别到手部'; return; }
+  if (!points) {
+    nails.forEach(n => n.visible = false);
+    nailGroup.scale.setScalar(lastHandScale);
+    statusEl.textContent = '未识别到手部';
+    return;
+  }
   // The sign is mirrored to match the front-facing display transform.
   const backOfHand = handDirection(points) < 0;
   const tips = [4, 8, 12, 16, 20], dips = [3, 7, 11, 15, 19];
+  const palmWidth = Math.hypot(points[5].x - points[17].x, points[5].y - points[17].y);
+  const detectedScale = clamp(palmWidth / palmReferenceWidth, 0.55, 2.2);
+  // Estimate scale from palm width, not z depth: it is stable across cameras
+  // and makes every nail grow/shrink with the hand in the video.
+  smoothedHandScale += (detectedScale - smoothedHandScale) * 0.18;
+  lastHandScale = smoothedHandScale;
+  nailGroup.scale.setScalar(smoothedHandScale);
   nails.forEach((nail, i) => {
     nail.visible = backOfHand;
     if (!backOfHand) return;
