@@ -31,17 +31,24 @@ const keyLight = new THREE.DirectionalLight(0xffffff, 3.2);
 keyLight.position.set(-1, 2, 3); scene.add(keyLight);
 
 const nailGroup = new THREE.Group(); scene.add(nailGroup);
-const nails = Array.from({ length: 5 }, (_, i) => {
+function createDesignerNail(index: number) {
   const group = new THREE.Group();
-  const shape = new THREE.CapsuleGeometry(0.075, 0.18, 8, 16);
-  const material = new THREE.MeshPhysicalMaterial({
-    color: new THREE.Color().setHSL(0.02 + i * 0.012, 0.45, 0.72),
-    roughness: 0.18, metalness: 0.04, clearcoat: 1, clearcoatRoughness: 0.08,
-  });
-  const nail = new THREE.Mesh(shape, material);
-  nail.rotation.x = Math.PI / 2; group.add(nail); group.visible = false;
-  nailGroup.add(group); return group;
-});
+  // Almond-shaped glossy shell: wider near the cuticle, tapered at the tip.
+  const outline = new THREE.Shape();
+  outline.moveTo(-0.065, -0.13); outline.quadraticCurveTo(-0.10, 0.02, 0, 0.16);
+  outline.quadraticCurveTo(0.10, 0.02, 0.065, -0.13); outline.closePath();
+  const geo = new THREE.ExtrudeGeometry(outline, { depth: 0.028, bevelEnabled: true, bevelSegments: 3, bevelSize: 0.012, bevelThickness: 0.012, curveSegments: 12 });
+  geo.center();
+  const palette = [0xc98286, 0xe7b6a5, 0xd89aa7, 0xb96f83, 0xe6c2b8];
+  const mat = new THREE.MeshPhysicalMaterial({ color: palette[index], roughness: 0.14, metalness: 0.08, clearcoat: 1, clearcoatRoughness: 0.05, sheen: 0.5, sheenColor: 0xffd8dd });
+  const nail = new THREE.Mesh(geo, mat);
+  nail.rotation.x = Math.PI / 2; group.add(nail);
+  // A tiny gold shimmer stripe gives the set a finished salon look.
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.20, 0.003), new THREE.MeshBasicMaterial({ color: 0xffd69a, transparent: true, opacity: 0.8 }));
+  stripe.position.set(0.022, 0, 0.02); stripe.rotation.z = index % 2 ? -0.18 : 0.18; group.add(stripe);
+  group.visible = false; nailGroup.add(group); return group;
+}
+const nails = Array.from({ length: 5 }, (_, i) => createDesignerNail(i));
 
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
